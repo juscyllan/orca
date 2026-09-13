@@ -47,22 +47,35 @@ function createRelease(flags: number): TerminalOptionKittyRelease | undefined {
   return (flags & KITTY_REPORT_EVENT_TYPES) === 0 ? undefined : { flags }
 }
 
-// Why ASCII-only: the protocol says a text-producing key sends its text, but #8031 needs Option
-// hotkeys to still reach kitty TUIs. ASCII splits the two — layouts hide `@ $ # [ ] { } \ |` behind
-// Option with no other way to type them, while the glyphs on TUI-bound keys (π, ƒ, ∫) never are.
-function isLayoutComposedAsciiCharacter(
+// Composed text with no other way to be typed: ASCII splits hotkeys from typing
+// (#8031), Latin letters extend the same split beyond ASCII (#20495). µ/×/÷
+// stay encoded as hotkeys.
+function isLayoutComposedCharacter(
   key: string,
   characterWithoutOption: string | undefined
 ): boolean {
   if (key.length !== 1) {
     return false
   }
+  if (
+    characterWithoutOption !== undefined &&
+    key.toLowerCase() === characterWithoutOption.toLowerCase()
+  ) {
+    return false
+  }
   const codePoint = key.codePointAt(0) as number
+  if (codePoint > 0x20 && codePoint <= 0x7e) {
+    return true
+  }
+  // µ/×/÷ sit in the Latin-1 range but serve as hotkey glyphs, not typing letters.
+  if (codePoint === 0xb5 || codePoint === 0xd7 || codePoint === 0xf7) {
+    return false
+  }
   return (
-    codePoint > 0x20 &&
-    codePoint <= 0x7e &&
-    (characterWithoutOption === undefined ||
-      key.toLowerCase() !== characterWithoutOption.toLowerCase())
+    (codePoint >= 0xc0 && codePoint <= 0xff) ||
+    (codePoint >= 0x100 && codePoint <= 0x17f) ||
+    (codePoint >= 0x180 && codePoint <= 0x24f) ||
+    (codePoint >= 0x1e00 && codePoint <= 0x1eff)
   )
 }
 
@@ -131,7 +144,7 @@ export function resolveTerminalOptionShortcutAction(
       !kittyReportsAllKeysAsEscapeCodes(flags) &&
       canSendComposedText &&
       !isNumpad &&
-      isLayoutComposedAsciiCharacter(event.key, characterWithoutOption)
+      isLayoutComposedCharacter(event.key, characterWithoutOption)
     ) {
       return { type: 'sendInput', data: event.key, optionKittyRelease: createRelease(flags) }
     }

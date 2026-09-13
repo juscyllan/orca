@@ -47,9 +47,22 @@ function createRelease(flags: number): TerminalOptionKittyRelease | undefined {
   return (flags & KITTY_REPORT_EVENT_TYPES) === 0 ? undefined : { flags }
 }
 
-// Composed text with no other way to be typed: ASCII splits hotkeys from typing
-// (#8031), Latin letters extend the same split beyond ASCII (#20495). µ/×/÷
-// stay encoded as hotkeys.
+// Composed text with no other way to be typed; Latin extends the ASCII split (#8031, #20495).
+const LATIN_COMPOSED_RANGES = [
+  [0xc0, 0xff],
+  [0x100, 0x17f],
+  [0x180, 0x24f],
+  [0x1e00, 0x1eff]
+] as const
+
+// In-range but TUI-bound: stay encoded.
+const LATIN_HOTKEY_GLYPHS: Record<number, true> = {
+  0xb5: true,
+  0xd7: true,
+  0xf7: true,
+  0x192: true
+}
+
 function isLayoutComposedCharacter(
   key: string,
   characterWithoutOption: string | undefined
@@ -58,7 +71,7 @@ function isLayoutComposedCharacter(
     return false
   }
   if (
-    characterWithoutOption !== undefined &&
+    characterWithoutOption === undefined ||
     key.toLowerCase() === characterWithoutOption.toLowerCase()
   ) {
     return false
@@ -67,16 +80,10 @@ function isLayoutComposedCharacter(
   if (codePoint > 0x20 && codePoint <= 0x7e) {
     return true
   }
-  // µ/×/÷ sit in the Latin-1 range but serve as hotkey glyphs, not typing letters.
-  if (codePoint === 0xb5 || codePoint === 0xd7 || codePoint === 0xf7) {
+  if (LATIN_HOTKEY_GLYPHS[codePoint] === true) {
     return false
   }
-  return (
-    (codePoint >= 0xc0 && codePoint <= 0xff) ||
-    (codePoint >= 0x100 && codePoint <= 0x17f) ||
-    (codePoint >= 0x180 && codePoint <= 0x24f) ||
-    (codePoint >= 0x1e00 && codePoint <= 0x1eff)
-  )
+  return LATIN_COMPOSED_RANGES.some(([lo, hi]) => codePoint >= lo && codePoint <= hi)
 }
 
 function isImeOwnedKey(event: TerminalOptionShortcutEvent): boolean {
